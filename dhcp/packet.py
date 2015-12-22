@@ -98,6 +98,7 @@ class Packet(object):
         self.xid = other.xid
         self.secs = other.secs
         self.flags = other.flags
+        self.chaddr = other.chaddr
 
     def unpack(self, payload):
         self.op, self.htype, self.hlen, self.hops = struct.unpack_from('BBBB', payload, 0)

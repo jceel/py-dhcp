@@ -116,7 +116,6 @@ class Server(object):
             return
 
         self.requests[packet.xid] = lease
-        offer.chaddr = packet.chaddr
         offer.yiaddr = lease.client_ip
         offer.siaddr = ipaddress.ip_address(self.address)
         offer.options.update({i.id: i for i in lease.options})
@@ -124,20 +123,21 @@ class Server(object):
 
     def handle_request(self, packet, sender):
         ack = Packet()
-        ack.xid = packet.xid
+        ack.clone_from(packet)
         ack.op = PacketType.BOOTREPLY
         ack.htype = packet.htype
         ack.sname = self.server_name
         ack.options[PacketOption.MESSAGE_TYPE] = Option(PacketOption.MESSAGE_TYPE, MessageType.DHCPACK)
 
-        lease = self.requests.pop(packet.xid)
+        lease = self.requests.pop(packet.xid, None)
         if not lease:
             lease = self.on_request(packet.chaddr, packet.options.get(PacketOption.HOST_NAME))
 
         self.leases.append(lease)
         ack.yiaddr = lease.client_ip
         ack.siaddr = ipaddress.ip_address(self.address)
-        self.send_packet(ack, (sender, 68))
+        ack.options.update({i.id: i for i in lease.options})
+        self.send_packet(ack, ('10.99.99.255', 68))
 
     def handle_release(self, packet):
         pass

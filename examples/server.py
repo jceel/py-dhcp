@@ -38,6 +38,7 @@ def request(mac, hostname):
     print('request from {0}, hostname {1}'.format(mac, hostname))
     ret = Lease(None)
     ret.client_ip = ipaddress.ip_address('192.168.1.1')
+    ret.lifetime = 300
     return ret
 
 
