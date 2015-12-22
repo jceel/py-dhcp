@@ -25,9 +25,10 @@
 #
 #####################################################################
 
+import ipaddress
 import logging
 import socket
-from .packet import Packet, PacketOption, MessageType
+from .packet import Packet, PacketType, PacketOption, Option, MessageType
 
 
 class Lease(object):
@@ -35,15 +36,30 @@ class Lease(object):
         self.server = server
         self.client_mac = None
         self.client_ip = None
-        self.lifetime = None
+        self.lifetime = 86400
+        self.router = None
+        self.dns_addresses = []
+        self.active = False
+
+    @property
+    def options(self):
+        yield Option(PacketOption.LEASE_TIME, self.lifetime)
+
+        if self.router:
+            yield Option(PacketOption.ROUTER, self.router)
+
+        if self.dns_addresses:
+            yield Option(PacketOption.DOMAIN_NAME_SERVER, self.dns_addresses)
 
 
 class Server(object):
     def __init__(self):
         self.sock = None
         self.address = None
+        self.server_name = None
         self.port = 67
         self.leases = []
+        self.requests = {}
         self.logger = logging.getLogger(self.__class__.__name__)
         self.on_packet = None
         self.on_request = None
@@ -58,6 +74,7 @@ class Server(object):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        self.sock.setsockopt(socket.IPPROTO_IP, 23, 1)
         self.sock.bind((self.address, self.port))
 
     def serve(self):
@@ -73,10 +90,10 @@ class Server(object):
                 self.logger.debug('Malformed packet: no MESSAGE_TYPE option')
                 continue
 
-            message_type = packet.options[PacketOption.MESSAGE_TYPE]
+            message_type = packet.options[PacketOption.MESSAGE_TYPE].value
             handler = self.handlers.get(message_type)
             if handler:
-                handler(packet)
+                handler(packet, address)
 
     def send_packet(self, packet, address):
         while True:
@@ -86,11 +103,41 @@ class Server(object):
             except InterruptedError:
                 continue
 
-    def handle_discover(self, packet):
-        pass
+    def handle_discover(self, packet, sender):
+        offer = Packet()
+        offer.clone_from(packet)
+        offer.op = PacketType.BOOTREPLY
+        offer.sname = self.server_name
+        offer.options[PacketOption.MESSAGE_TYPE] = Option(PacketOption.MESSAGE_TYPE, MessageType.DHCPOFFER)
 
-    def handle_request(self, packet):
-        pass
+        lease = self.on_request(packet.chaddr, packet.options.get(PacketOption.HOST_NAME))
+        if not lease:
+            # send NAK
+            return
+
+        self.requests[packet.xid] = lease
+        offer.chaddr = packet.chaddr
+        offer.yiaddr = lease.client_ip
+        offer.siaddr = ipaddress.ip_address(self.address)
+        offer.options.update({i.id: i for i in lease.options})
+        self.send_packet(offer, ('10.99.99.255', 68))
+
+    def handle_request(self, packet, sender):
+        ack = Packet()
+        ack.xid = packet.xid
+        ack.op = PacketType.BOOTREPLY
+        ack.htype = packet.htype
+        ack.sname = self.server_name
+        ack.options[PacketOption.MESSAGE_TYPE] = Option(PacketOption.MESSAGE_TYPE, MessageType.DHCPACK)
+
+        lease = self.requests.pop(packet.xid)
+        if not lease:
+            lease = self.on_request(packet.chaddr, packet.options.get(PacketOption.HOST_NAME))
+
+        self.leases.append(lease)
+        ack.yiaddr = lease.client_ip
+        ack.siaddr = ipaddress.ip_address(self.address)
+        self.send_packet(ack, (sender, 68))
 
     def handle_release(self, packet):
         pass

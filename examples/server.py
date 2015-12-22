@@ -25,18 +25,28 @@
 #
 #####################################################################
 
+import ipaddress
 import sys
-from dhcp.server import Server
+from dhcp.server import Server, Lease
 
 
 def print_packet(packet):
     packet.dump(sys.stdout)
 
 
+def request(mac, hostname):
+    print('request from {0}, hostname {1}'.format(mac, hostname))
+    ret = Lease(None)
+    ret.client_ip = ipaddress.ip_address('192.168.1.1')
+    return ret
+
+
 def main():
     s = Server()
+    s.server_name = 'example server'
     s.on_packet = print_packet
-    s.start('')
+    s.on_request = request
+    s.start(sys.argv[1])
     s.serve()
 
 
