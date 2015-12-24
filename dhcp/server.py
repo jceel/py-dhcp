@@ -56,6 +56,7 @@ class Server(object):
     def __init__(self):
         self.sock = None
         self.address = None
+        self.broadcast = None
         self.server_name = None
         self.port = 67
         self.leases = []
@@ -70,11 +71,14 @@ class Server(object):
         }
 
     def start(self, address):
-        self.address = address
+        if not isinstance(address, ipaddress.IPv4Interface):
+            raise ValueError('address must be an instance of ipaddress.IPv4Interface')
+
+        self.address = str(address.ip)
+        self.broadcast = str(address.network.broadcast_address)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        self.sock.setsockopt(socket.IPPROTO_IP, 23, 1)
         self.sock.bind((self.address, self.port))
 
     def serve(self):
@@ -119,7 +123,7 @@ class Server(object):
         offer.yiaddr = lease.client_ip
         offer.siaddr = ipaddress.ip_address(self.address)
         offer.options.update({i.id: i for i in lease.options})
-        self.send_packet(offer, ('10.99.99.255', 68))
+        self.send_packet(offer, (self.broadcast, 68))
 
     def handle_request(self, packet, sender):
         ack = Packet()
@@ -137,7 +141,7 @@ class Server(object):
         ack.yiaddr = lease.client_ip
         ack.siaddr = ipaddress.ip_address(self.address)
         ack.options.update({i.id: i for i in lease.options})
-        self.send_packet(ack, ('10.99.99.255', 68))
+        self.send_packet(ack, (self.broadcast, 68))
 
     def handle_release(self, packet):
         pass
