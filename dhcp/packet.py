@@ -108,7 +108,7 @@ class Packet(object):
         self.yiaddr = ipaddress.ip_address(struct.unpack_from('!I', payload, 16)[0])
         self.siaddr = ipaddress.ip_address(struct.unpack_from('!I', payload, 20)[0])
         self.giaddr = ipaddress.ip_address(struct.unpack_from('!I', payload, 24)[0])
-        self.chaddr = struct.unpack_from('12s', payload, 28)[0]
+        self.chaddr = struct.unpack_from('12s', payload, 28)[0][:6]
         self.sname = struct.unpack_from('64s', payload, 44)[0].decode('ascii')
 
         self.op = PacketType(self.op)

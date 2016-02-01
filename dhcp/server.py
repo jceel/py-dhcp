@@ -28,11 +28,12 @@
 import ipaddress
 import logging
 import socket
+from .utils import format_mac
 from .packet import Packet, PacketType, PacketOption, Option, MessageType
 
 
 class Lease(object):
-    def __init__(self, server):
+    def __init__(self, server=None):
         self.server = server
         self.client_mac = None
         self.client_ip = None
@@ -71,6 +72,12 @@ class Server(object):
         }
 
     def start(self, address):
+        if not self.server_name:
+            raise RuntimeError('Please set server_name')
+
+        if not self.on_request:
+            raise RuntimeError('Please set on_request')
+
         if not isinstance(address, ipaddress.IPv4Interface):
             raise ValueError('address must be an instance of ipaddress.IPv4Interface')
 
@@ -79,7 +86,7 @@ class Server(object):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        self.sock.bind((self.address, self.port))
+        self.sock.bind(('', self.port))
 
     def serve(self):
         while True:
@@ -114,7 +121,7 @@ class Server(object):
         offer.sname = self.server_name
         offer.options[PacketOption.MESSAGE_TYPE] = Option(PacketOption.MESSAGE_TYPE, MessageType.DHCPOFFER)
 
-        lease = self.on_request(packet.chaddr, packet.options.get(PacketOption.HOST_NAME))
+        lease = self.on_request(format_mac(packet.chaddr), packet.options.get(PacketOption.HOST_NAME))
         if not lease:
             # send NAK
             return
@@ -135,7 +142,7 @@ class Server(object):
 
         lease = self.requests.pop(packet.xid, None)
         if not lease:
-            lease = self.on_request(packet.chaddr, packet.options.get(PacketOption.HOST_NAME))
+            lease = self.on_request(format_mac(packet.chaddr), packet.options.get(PacketOption.HOST_NAME))
 
         self.leases.append(lease)
         ack.yiaddr = lease.client_ip
