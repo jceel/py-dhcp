@@ -43,6 +43,17 @@ class Lease(object):
         self.dns_addresses = []
         self.active = False
 
+    def __getstate__(self):
+        return {
+            'client_mac': self.client_mac,
+            'client_ip': str(self.client_ip),
+            'client_mask': str(self.client_mask),
+            'lifetime': self.lifetime,
+            'router': str(self.router) if self.router else None,
+            'dns_addresses': [str(i) for i in self.dns_addresses],
+            'active': self.active
+        }
+
     @property
     def options(self):
         yield Option(PacketOption.LEASE_TIME, self.lifetime)
