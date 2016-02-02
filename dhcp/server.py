@@ -37,6 +37,7 @@ class Lease(object):
         self.server = server
         self.client_mac = None
         self.client_ip = None
+        self.client_mask = None
         self.lifetime = 86400
         self.router = None
         self.dns_addresses = []
@@ -45,6 +46,7 @@ class Lease(object):
     @property
     def options(self):
         yield Option(PacketOption.LEASE_TIME, self.lifetime)
+        yield Option(PacketOption.SUBNET_MASK, self.client_mask)
 
         if self.router:
             yield Option(PacketOption.ROUTER, self.router)
