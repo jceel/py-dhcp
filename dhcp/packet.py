@@ -71,6 +71,7 @@ class PacketOption(enum.IntEnum):
     PARAMETER_REQUEST_LIST = 55
     CLASS_IDENT = 60
     CLIENT_IDENT = 61
+    STATIC_ROUTES = 121
 
 
 class Packet(object):
@@ -175,6 +176,16 @@ class Option(object):
         if packed:
             self.unpack(packed)
 
+    def __pack_route(self, subnet, gateway):
+        result = struct.pack('B', subnet.prefixlen)
+        packed = subnet.network_address.packed;
+        for i in range(0, 4):
+            if packed[i] != b'\x00':
+                result += packed[i:i+1]
+
+        result += gateway.packed
+        return result
+
     def unpack(self, value):
         if self.id in (PacketOption.ROUTER, PacketOption.REQUESTED_IP, PacketOption.SUBNET_MASK):
             self.value = ipaddress.ip_address(value)
@@ -210,3 +221,6 @@ class Option(object):
 
         if self.id == PacketOption.LEASE_TIME:
             return struct.pack('!I', self.value)
+
+        if self.id == PacketOption.STATIC_ROUTES:
+            return b''.join(self.__pack_route(s, g) for s, g in self.value)

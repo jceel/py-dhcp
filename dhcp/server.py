@@ -41,6 +41,7 @@ class Lease(object):
         self.lifetime = 86400
         self.router = None
         self.dns_addresses = []
+        self.static_routes = []
         self.active = False
 
     def __getstate__(self):
@@ -64,6 +65,9 @@ class Lease(object):
 
         if self.dns_addresses:
             yield Option(PacketOption.DOMAIN_NAME_SERVER, self.dns_addresses)
+
+        if self.static_routes:
+            yield Option(PacketOption.STATIC_ROUTES, self.static_routes)
 
 
 class Server(object):
