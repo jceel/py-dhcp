@@ -69,6 +69,7 @@ class PacketOption(enum.IntEnum):
     MESSAGE_TYPE = 53
     SERVER_IDENT = 54
     PARAMETER_REQUEST_LIST = 55
+    MAX_MESSAGE_SIZE = 57
     CLASS_IDENT = 60
     CLIENT_IDENT = 61
     STATIC_ROUTES = 121
