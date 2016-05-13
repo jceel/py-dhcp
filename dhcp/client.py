@@ -76,13 +76,18 @@ class Client(object):
         self.listen_thread = threading.Thread(target=self.__listen, daemon=True, name='py-dhcp listen thread')
         self.listen_thread.start()
 
+    def __setstate(self, state):
+        self.state = state
+        self.on_state_change(state)
+        self.cv.notify_all()
+
     def __t1(self):
         """
         T1 aka renew timer
         """
         self.logger.debug('Renewing IP address lease')
         with self.cv:
-            self.state = State.RENEWING
+            self.__setstate(State.RENEWING)
 
         self.renew()
 
@@ -93,7 +98,7 @@ class Client(object):
         self.logger.debug('Renew timed out; rebinding')
         with self.cv:
             self.server_address = None
-            self.state = State.REBINDING
+            self.__setstate(State.RENEWING)
 
         self.discover()
         self.request()
@@ -120,9 +125,7 @@ class Client(object):
                 with self.cv:
                     self.server_address = packet.siaddr
                     self.requested_address = packet.yiaddr
-                    self.state = State.REQUESTING
-                    self.on_state_change(self.state)
-                    self.cv.notify_all()
+                    self.__setstate(State.REQUESTING)
 
             if opt.value == MessageType.DHCPACK:
                 if self.state not in (State.REQUESTING, State.RENEWING, State.REBINDING):
@@ -170,18 +173,14 @@ class Client(object):
 
                 with self.cv:
                     self.lease = lease
-                    self.state = State.BOUND
-                    self.on_state_change(self.state)
-                    self.cv.notify_all()
+                    self.__setstate(State.BOUND)
 
             if opt.value == MessageType.DHCPNAK:
                 self.logger.warning('DHCP server declined out request')
 
     def __discover(self, requested_address=None):
         with self.cv:
-            self.state = State.SELECTING
-            self.on_state_change(self.state)
-            self.cv.notify_all()
+            self.__setstate(State.SELECTING)
 
         packet = Packet()
         packet.op = PacketType.BOOTREQUEST
