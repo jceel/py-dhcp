@@ -27,6 +27,7 @@
 
 import sys
 import ipaddress
+import time
 import enum
 import random
 import socket
@@ -56,22 +57,48 @@ class Client(object):
         self.port = 68
         self.default_lifetime = 300
         self.listen_thread = None
+        self.discover_thread = None
+        self.t1_timer = None
+        self.t2_timer = None
         self.client_ident = client_ident
         self.lease = None
         self.requested_address = None
         self.server_address = None
         self.cv = threading.Condition()
         self.state = State.INIT
+        self.on_state_change = lambda state: None
 
     def start(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.sock.bind(('', self.port))
-        self.listen_thread = threading.Thread(target=self.listen, daemon=True, name='DHCP client thread')
+        self.listen_thread = threading.Thread(target=self.__listen, daemon=True, name='py-dhcp listen thread')
         self.listen_thread.start()
 
-    def listen(self):
+    def __t1(self):
+        """
+        T1 aka renew timer
+        """
+        self.logger.debug('Renewing IP address lease')
+        with self.cv:
+            self.state = State.RENEWING
+
+        self.renew()
+
+    def __t2(self):
+        """
+        T2 aka rebind timer
+        """
+        self.logger.debug('Renew timed out; rebinding')
+        with self.cv:
+            self.server_address = None
+            self.state = State.REBINDING
+
+        self.discover()
+        self.request()
+
+    def __listen(self):
         while True:
             message, address = self.sock.recvfrom(2048)
             packet = Packet()
@@ -86,18 +113,21 @@ class Client(object):
 
             if opt.value == MessageType.DHCPOFFER:
                 if self.state != State.SELECTING:
-                    pass
+                    self.logger.debug('DHCPOFFER received and ignored')
+                    continue
 
                 self.logger.debug('DHCP server is {0}'.format(packet.siaddr))
                 with self.cv:
                     self.server_address = packet.siaddr
                     self.requested_address = packet.yiaddr
                     self.state = State.REQUESTING
+                    self.on_state_change(self.state)
                     self.cv.notify_all()
 
             if opt.value == MessageType.DHCPACK:
                 if self.state not in (State.REQUESTING, State.RENEWING, State.REBINDING):
-                    pass
+                    self.logger.debug('DHCPACK received and ignored')
+                    continue
 
                 lease = Lease()
                 lease.client_ip = packet.yiaddr
@@ -105,7 +135,7 @@ class Client(object):
 
                 for opt in packet.options:
                     if opt.id == PacketOption.LEASE_TIME:
-                        lease.lifetime = opt.value
+                        lease.lifetime = 5 # opt.value
 
                     if opt.id == PacketOption.SUBNET_MASK:
                         lease.client_mask = opt.value
@@ -125,17 +155,34 @@ class Client(object):
                     if opt.id == PacketOption.HOST_NAME:
                         lease.host_name = opt.value
 
+                # (re)start T1 and T2 timers
+                if self.t1_timer:
+                    self.t1_timer.cancel()
+                self.t1_timer = threading.Timer(lease.lifetime / 2, self.__t1)
+                self.t1_timer.start()
+
+                if self.t2_timer:
+                    self.t2_timer.cancel()
+                self.t2_timer = threading.Timer(lease.lifetime, self.__t2)
+                self.t2_timer.start()
+
                 self.logger.debug('Bound to {0}'.format(lease.client_ip))
 
                 with self.cv:
                     self.lease = lease
                     self.state = State.BOUND
+                    self.on_state_change(self.state)
                     self.cv.notify_all()
 
             if opt.value == MessageType.DHCPNAK:
                 self.logger.warning('DHCP server declined out request')
 
-    def discover(self, block=True, timeout=None):
+    def __discover(self, requested_address=None):
+        with self.cv:
+            self.state = State.SELECTING
+            self.on_state_change(self.state)
+            self.cv.notify_all()
+
         packet = Packet()
         packet.op = PacketType.BOOTREQUEST
         packet.xid = random.randint(0, 2**32 - 1)
@@ -144,13 +191,30 @@ class Client(object):
             Option(PacketOption.MESSAGE_TYPE, MessageType.DHCPDISCOVER)
         ]
 
-        if self.requested_address:
+        if requested_address:
             packet.options.append(Option(PacketOption.REQUESTED_IP, self.requested_address))
 
-        with self.cv:
-            self.sock.sendto(packet.pack(), ('255.255.255.255', 67))
-            self.state = State.SELECTING
-            self.cv.notify_all()
+        retries = 0
+
+        while True:
+            self.logger.debug('Sending DHCPDISCOVER')
+            try:
+                self.sock.sendto(packet.pack(), ('255.255.255.255', 67))
+            except OSError as err:
+                self.logger.debug('Cannot send message: {0}'.format(str(err)))
+            with self.cv:
+                if self.cv.wait_for(lambda: self.state == State.REQUESTING, 5 if retries < 10 else 30):
+                    return
+
+    def discover(self, block=True, timeout=None):
+        self.discover_thread = threading.Thread(
+            target=self.__discover,
+            args=(self.requested_address,),
+            daemon=True,
+            name='py-dhcp discover thread'
+        )
+
+        self.discover_thread.start()
 
         if block:
             with self.cv:
@@ -169,10 +233,22 @@ class Client(object):
         ]
 
         with self.cv:
-            self.sock.sendto(packet.pack(), (str(self.server_address), 67))
+            try:
+                self.sock.sendto(packet.pack(), (str(self.server_address), 67))
+            except OSError as err:
+                self.logger.debug('Cannot send message: {0}'.format(str(err)))
+
             if block:
                 self.cv.wait_for(lambda: self.state == State.BOUND, timeout)
                 return self.lease
 
+    def renew(self, block=True, timeout=None):
+        self.request()
+
     def release(self):
         pass
+
+    def cancel(self):
+        with self.cv:
+            if self.state in (State.SELECTING, State.REBINDING):
+                pass

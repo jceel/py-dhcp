@@ -25,6 +25,7 @@
 #
 #####################################################################
 
+import time
 import logging
 from dhcp.client import Client
 
@@ -35,6 +36,7 @@ def main():
     s.discover()
     lease = s.request()
     print(lease.__getstate__())
+    time.sleep(100)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
