@@ -1,5 +1,5 @@
 #
-# Copyright 2016 iXsystems, Inc.
+# Copyright 2015 iXsystems, Inc.
 # All rights reserved
 #
 # Redistribution and use in source and binary forms, with or without
@@ -25,20 +25,43 @@
 #
 #####################################################################
 
-import binascii
+from .packet import Option, PacketOption
 
 
-def format_mac(mac):
-    return ':'.join('{0:02x}'.format(s) for s in mac)
+class Lease(object):
+    def __init__(self):
+        self.client_mac = None
+        self.client_ip = None
+        self.client_mask = None
+        self.lifetime = 86400
+        self.router = None
+        self.host_name = None
+        self.domain_name = None
+        self.dns_addresses = []
+        self.static_routes = []
+        self.active = False
 
+    def __getstate__(self):
+        return {
+            'client_mac': self.client_mac,
+            'client_ip': str(self.client_ip),
+            'client_mask': str(self.client_mask),
+            'lifetime': self.lifetime,
+            'router': str(self.router) if self.router else None,
+            'dns_addresses': [str(i) for i in self.dns_addresses],
+            'active': self.active
+        }
 
-def pack_mac(macstr):
-    return binascii.unhexlify(macstr.replace(':', ''))
+    @property
+    def options(self):
+        yield Option(PacketOption.LEASE_TIME, self.lifetime)
+        yield Option(PacketOption.SUBNET_MASK, self.client_mask)
 
+        if self.router:
+            yield Option(PacketOption.ROUTER, self.router)
 
-def first_or_default(f, iterable, default=None):
-    i = list(filter(f, iterable))
-    if i:
-        return i[0]
+        if self.dns_addresses:
+            yield Option(PacketOption.DOMAIN_NAME_SERVER, self.dns_addresses)
 
-    return default
+        if self.static_routes:
+            yield Option(PacketOption.STATIC_ROUTES, self.static_routes)

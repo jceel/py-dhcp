@@ -32,44 +32,6 @@ from .utils import format_mac
 from .packet import Packet, PacketType, PacketOption, Option, MessageType
 
 
-class Lease(object):
-    def __init__(self, server=None):
-        self.server = server
-        self.client_mac = None
-        self.client_ip = None
-        self.client_mask = None
-        self.lifetime = 86400
-        self.router = None
-        self.dns_addresses = []
-        self.static_routes = []
-        self.active = False
-
-    def __getstate__(self):
-        return {
-            'client_mac': self.client_mac,
-            'client_ip': str(self.client_ip),
-            'client_mask': str(self.client_mask),
-            'lifetime': self.lifetime,
-            'router': str(self.router) if self.router else None,
-            'dns_addresses': [str(i) for i in self.dns_addresses],
-            'active': self.active
-        }
-
-    @property
-    def options(self):
-        yield Option(PacketOption.LEASE_TIME, self.lifetime)
-        yield Option(PacketOption.SUBNET_MASK, self.client_mask)
-
-        if self.router:
-            yield Option(PacketOption.ROUTER, self.router)
-
-        if self.dns_addresses:
-            yield Option(PacketOption.DOMAIN_NAME_SERVER, self.dns_addresses)
-
-        if self.static_routes:
-            yield Option(PacketOption.STATIC_ROUTES, self.static_routes)
-
-
 class Server(object):
     def __init__(self):
         self.sock = None

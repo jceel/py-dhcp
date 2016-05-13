@@ -27,7 +27,8 @@
 
 import ipaddress
 import sys
-from dhcp.server import Server, Lease
+from dhcp.server import Server
+from dhcp.lease import Lease
 
 
 def print_packet(packet):
@@ -36,7 +37,7 @@ def print_packet(packet):
 
 def request(mac, hostname):
     print('request from {0}, hostname {1}'.format(mac, hostname))
-    ret = Lease(None)
+    ret = Lease()
     ret.client_ip = ipaddress.ip_address('192.168.1.1')
     ret.lifetime = 300
     return ret

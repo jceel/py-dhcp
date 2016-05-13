@@ -25,20 +25,17 @@
 #
 #####################################################################
 
-import binascii
+import logging
+from dhcp.client import Client
 
 
-def format_mac(mac):
-    return ':'.join('{0:02x}'.format(s) for s in mac)
+def main():
+    s = Client('6c:40:08:a7:3d:56')
+    s.start()
+    s.discover()
+    lease = s.request()
+    print(lease.__getstate__())
 
-
-def pack_mac(macstr):
-    return binascii.unhexlify(macstr.replace(':', ''))
-
-
-def first_or_default(f, iterable, default=None):
-    i = list(filter(f, iterable))
-    if i:
-        return i[0]
-
-    return default
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.DEBUG)
+    main()

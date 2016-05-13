@@ -27,7 +27,9 @@
 
 import enum
 import ipaddress
+import socket
 import struct
+from .utils import first_or_default
 
 
 MAGIC_COOKIE = b'\x63\x82\x53\x63'
@@ -36,6 +38,10 @@ MAGIC_COOKIE = b'\x63\x82\x53\x63'
 class PacketType(enum.IntEnum):
     BOOTREQUEST = 1
     BOOTREPLY = 2
+
+
+class PacketFlags(enum.IntEnum):
+    BROADCAST = 1
 
 
 class HardwareAddressType(enum.IntEnum):
@@ -78,11 +84,11 @@ class PacketOption(enum.IntEnum):
 class Packet(object):
     def __init__(self):
         self.op = None
-        self.htype = None
-        self.hlen = None
-        self.hops = None
-        self.secs = None
-        self.flags = None
+        self.htype = HardwareAddressType.IEEE802
+        self.hlen = 6
+        self.hops = 0
+        self.secs = 0
+        self.flags = 1
         self.xid = None
         self.ciaddr = ipaddress.ip_address('0.0.0.0')
         self.yiaddr = ipaddress.ip_address('0.0.0.0')
@@ -91,7 +97,7 @@ class Packet(object):
         self.chaddr = bytes(b'\x00\x00\x00\x00\x00\x00')
         self.sname = ''
         self.cookie = None
-        self.options = {}
+        self.options = []
 
     def clone_from(self, other):
         self.htype = other.htype
@@ -132,7 +138,7 @@ class Packet(object):
             value = struct.unpack_from('{0}s'.format(length), payload, offset)[0]
             offset += length
             optid = PacketOption(code)
-            self.options[optid] = Option(optid, packed=value)
+            self.options.append(Option(optid, packed=value))
 
     def pack(self):
         result = bytearray(bytes(240))
@@ -145,9 +151,9 @@ class Packet(object):
         struct.pack_into('64s', result, 40, self.sname.encode('ascii'))
         struct.pack_into('4s', result, 236, MAGIC_COOKIE)
 
-        for id, i in self.options.items():
+        for i in self.options:
             packed = i.pack()
-            result += struct.pack('BB{0}s'.format(len(packed)), int(id), len(packed), packed)
+            result += struct.pack('BB{0}s'.format(len(packed)), int(i.id), len(packed), packed)
 
         return result
 
@@ -162,15 +168,19 @@ class Packet(object):
         print("Sname: {0}".format(self.sname))
         print("Magic cookie: {0}".format(self.cookie))
         print("Options:", file=f)
-        for i in self.options.values():
+        for i in self.options:
             print("\t{0} = {1}".format(i.id.name, i.value), file=f)
+
+    def find_option(self, opt):
+        return first_or_default(lambda x: x.id == opt, self.options)
 
 
 class Option(object):
     def __init__(self, id, value=None, packed=None):
         self.id = id
+        self.value = None
 
-        if value:
+        if value is not None:
             self.value = value
             return
 
@@ -199,10 +209,16 @@ class Option(object):
         if self.id in (PacketOption.DOMAIN_NAME_SERVER, PacketOption.LOG_SERVER, PacketOption.TIME_SERVER):
             self.value = []
             for i in struct.iter_unpack('I', value):
-                self.value.append(ipaddress.ip_address(i[0]))
+                self.value.append(ipaddress.ip_address(socket.ntohl(i[0])))
+
+            return
 
         if self.id == PacketOption.MESSAGE_TYPE:
             self.value = MessageType(value[0])
+            return
+
+        if self.id == PacketOption.LEASE_TIME:
+            self.value = struct.unpack('I', value)[0]
             return
 
         self.value = value
@@ -214,7 +230,7 @@ class Option(object):
         if self.id in (PacketOption.DOMAIN_NAME_SERVER, PacketOption.LOG_SERVER, PacketOption.TIME_SERVER):
             return b''.join(i.packed for i in self.value)
 
-        if self.id in (PacketOption.HOST_NAME, PacketOption.DOMAIN_NAME):
+        if self.id in (PacketOption.HOST_NAME, PacketOption.DOMAIN_NAME, PacketOption.CLASS_IDENT):
             return self.value.encode('ascii')
 
         if self.id == PacketOption.MESSAGE_TYPE:
