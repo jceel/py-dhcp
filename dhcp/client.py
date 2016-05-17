@@ -72,6 +72,8 @@ class Client(object):
         self.cv = threading.Condition()
         self.state = State.INIT
         self.xid = None
+        self.on_bind = lambda lease: None
+        self.on_unbind = lambda lease: None
         self.on_state_change = lambda state: None
         self.source_if = netif.get_interface(self.interface)
         self.hwaddr = str(self.source_if.link_address.address)
@@ -194,6 +196,7 @@ class Client(object):
                 self.t2_timer = threading.Timer(lease.lifetime, self.__t2)
                 self.t2_timer.start()
 
+                self.on_bind(lease)
                 self.logger.debug('Bound to {0}'.format(lease.client_ip))
 
                 with self.cv:

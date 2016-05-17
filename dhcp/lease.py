@@ -25,6 +25,7 @@
 #
 #####################################################################
 
+import ipaddress
 from .packet import Option, PacketOption
 
 
@@ -51,6 +52,10 @@ class Lease(object):
             'dns_addresses': [str(i) for i in self.dns_addresses],
             'active': self.active
         }
+
+    @property
+    def client_interface(self):
+        return ipaddress.ip_interface('{0}/{1}'.format(self.client_ip, self.client_mask))
 
     @property
     def options(self):
