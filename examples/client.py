@@ -25,13 +25,14 @@
 #
 #####################################################################
 
+import sys
 import time
 import logging
 from dhcp.client import Client
 
 
 def main():
-    s = Client('6c:40:08:a7:3d:56')
+    s = Client(sys.argv[1], 'test')
     s.start()
     s.discover()
     lease = s.request()

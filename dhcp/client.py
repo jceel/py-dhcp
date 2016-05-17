@@ -33,7 +33,10 @@ import random
 import socket
 import threading
 import logging
+import netif
+from bsd import bpf
 from .packet import Packet, Option, PacketOption, PacketType, MessageType
+from .udp import UDPPacket
 from .lease import Lease
 from .utils import pack_mac
 
@@ -50,31 +53,38 @@ class State(enum.Enum):
 
 
 class Client(object):
-    def __init__(self, hwaddr, client_ident=''):
+    def __init__(self, interface, hostname=''):
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.hwaddr = hwaddr
-        self.sock = None
+        self.interface = interface
+        self.bpf = None
         self.port = 68
         self.default_lifetime = 300
         self.listen_thread = None
         self.discover_thread = None
         self.t1_timer = None
         self.t2_timer = None
-        self.client_ident = client_ident
+        self.client_ident = None
+        self.hostname = hostname
         self.lease = None
         self.requested_address = None
+        self.server_mac = None
         self.server_address = None
         self.cv = threading.Condition()
         self.state = State.INIT
+        self.xid = None
         self.on_state_change = lambda state: None
+        self.source_if = netif.get_interface(self.interface)
+        self.hwaddr = str(self.source_if.link_address.address)
 
     def start(self):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        self.sock.bind(('', self.port))
+        self.logger.info('Starting')
+        self.bpf = bpf.BPF()
+        self.bpf.open()
+        self.bpf.immediate = True
+        self.bpf.interface = self.interface
         self.listen_thread = threading.Thread(target=self.__listen, daemon=True, name='py-dhcp listen thread')
         self.listen_thread.start()
+        self.discover(False)
 
     def __setstate(self, state):
         self.state = state
@@ -101,13 +111,26 @@ class Client(object):
             self.__setstate(State.RENEWING)
 
         self.discover()
-        self.request()
+
+    def __send(self, mac, src_ip, dst_ip, payload):
+        udp = UDPPacket(
+            src_mac=self.hwaddr, dst_mac=mac, src_address=ipaddress.ip_address(src_ip),
+            dst_address=ipaddress.ip_address(dst_ip), src_port=68, dst_port=67,
+            payload=payload
+        )
+
+        self.bpf.write(udp.pack())
 
     def __listen(self):
-        while True:
-            message, address = self.sock.recvfrom(2048)
+        for buf in self.bpf.read():
+            udp = UDPPacket()
+            udp.unpack(buf)
+
+            if udp.dst_port != 68 and udp.src_port != 67:
+                continue
+
             packet = Packet()
-            packet.unpack(message)
+            packet.unpack(udp.payload)
 
             opt = packet.find_option(PacketOption.MESSAGE_TYPE)
             if not opt:
@@ -123,9 +146,11 @@ class Client(object):
 
                 self.logger.debug('DHCP server is {0}'.format(packet.siaddr))
                 with self.cv:
-                    self.server_address = packet.siaddr
+                    self.server_mac = udp.src_mac
+                    self.server_address = udp.src_address
                     self.requested_address = packet.yiaddr
                     self.__setstate(State.REQUESTING)
+                    self.request(False)
 
             if opt.value == MessageType.DHCPACK:
                 if self.state not in (State.REQUESTING, State.RENEWING, State.REBINDING):
@@ -138,7 +163,7 @@ class Client(object):
 
                 for opt in packet.options:
                     if opt.id == PacketOption.LEASE_TIME:
-                        lease.lifetime = 5 # opt.value
+                        lease.lifetime = opt.value
 
                     if opt.id == PacketOption.SUBNET_MASK:
                         lease.client_mask = opt.value
@@ -182,12 +207,15 @@ class Client(object):
         with self.cv:
             self.__setstate(State.SELECTING)
 
+        self.xid = random.randint(0, 2**32 - 1)
         packet = Packet()
         packet.op = PacketType.BOOTREQUEST
-        packet.xid = random.randint(0, 2**32 - 1)
+        packet.xid = self.xid
         packet.chaddr = pack_mac(self.hwaddr)
         packet.options = [
-            Option(PacketOption.MESSAGE_TYPE, MessageType.DHCPDISCOVER)
+            Option(PacketOption.MESSAGE_TYPE, MessageType.DHCPDISCOVER),
+            Option(PacketOption.CLIENT_IDENT, pack_mac(self.hwaddr)),
+            Option(PacketOption.HOST_NAME, self.hostname)
         ]
 
         if requested_address:
@@ -198,11 +226,15 @@ class Client(object):
         while True:
             self.logger.debug('Sending DHCPDISCOVER')
             try:
-                self.sock.sendto(packet.pack(), ('255.255.255.255', 67))
+                self.__send('FF:FF:FF:FF:FF:FF', '0.0.0.0', '255.255.255.255', packet.pack())
             except OSError as err:
                 self.logger.debug('Cannot send message: {0}'.format(str(err)))
+
             with self.cv:
-                if self.cv.wait_for(lambda: self.state == State.REQUESTING, 5 if retries < 10 else 30):
+                while self.state != State.REQUESTING:
+                    self.cv.wait(5 if retries < 10 else 30)
+                    break
+                else:
                     return
 
     def discover(self, block=True, timeout=None):
@@ -222,18 +254,20 @@ class Client(object):
     def request(self, block=True, timeout=None):
         packet = Packet()
         packet.op = PacketType.BOOTREQUEST
-        packet.xid = random.randint(0, 2**32 - 1)
+        packet.xid = self.xid
         packet.chaddr = pack_mac(self.hwaddr)
-        packet.siaddr = self.server_address
+        packet.siaddr = int(self.server_address)
         packet.options = [
             Option(PacketOption.MESSAGE_TYPE, MessageType.DHCPREQUEST),
             Option(PacketOption.REQUESTED_IP, self.requested_address),
-            Option(PacketOption.CLASS_IDENT, self.client_ident)
+            Option(PacketOption.HOST_NAME, self.hostname),
+            Option(PacketOption.CLIENT_IDENT, pack_mac(self.hwaddr))
         ]
 
         with self.cv:
             try:
-                self.sock.sendto(packet.pack(), (str(self.server_address), 67))
+                self.logger.debug('Sending DHCPREQUEST')
+                self.__send('FF:FF:FF:FF:FF:FF', '0.0.0.0', self.server_address, packet.pack())
             except OSError as err:
                 self.logger.debug('Cannot send message: {0}'.format(str(err)))
 

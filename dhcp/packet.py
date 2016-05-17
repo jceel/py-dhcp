@@ -84,7 +84,7 @@ class PacketOption(enum.IntEnum):
 class Packet(object):
     def __init__(self):
         self.op = None
-        self.htype = HardwareAddressType.IEEE802
+        self.htype = HardwareAddressType.ETHERNET
         self.hlen = 6
         self.hops = 0
         self.secs = 0
@@ -94,9 +94,9 @@ class Packet(object):
         self.yiaddr = ipaddress.ip_address('0.0.0.0')
         self.siaddr = ipaddress.ip_address('0.0.0.0')
         self.giaddr = ipaddress.ip_address('0.0.0.0')
-        self.chaddr = bytes(b'\x00\x00\x00\x00\x00\x00')
+        self.chaddr = b'\x00\x00\x00\x00\x00\x00'
+        self.cookie = MAGIC_COOKIE
         self.sname = ''
-        self.cookie = None
         self.options = []
 
     def clone_from(self, other):
@@ -155,18 +155,19 @@ class Packet(object):
             packed = i.pack()
             result += struct.pack('BB{0}s'.format(len(packed)), int(i.id), len(packed), packed)
 
+        result += b'\xff'
         return result
 
     def dump(self, f):
-        print("Op: {0}".format(self.op.name))
+        print("Op: {0}".format(self.op.name), file=f)
         print("Client address: {0}".format(self.ciaddr), file=f)
         print("Your address: {0}".format(self.yiaddr), file=f)
         print("Server address: {0}".format(self.siaddr), file=f)
         print("Gateway address: {0}".format(self.giaddr), file=f)
-        print("Client hardware address: {0}".format(':'.join('%02x' % b for b in self.chaddr[:6])))
-        print("XID: {0}".format(self.xid))
-        print("Sname: {0}".format(self.sname))
-        print("Magic cookie: {0}".format(self.cookie))
+        print("Client hardware address: {0}".format(':'.join('%02x' % b for b in self.chaddr[:6])), file=f)
+        print("XID: {0}".format(self.xid), file=f)
+        print("Sname: {0}".format(self.sname), file=f)
+        print("Magic cookie: {0}".format(self.cookie), file=f)
         print("Options:", file=f)
         for i in self.options:
             print("\t{0} = {1}".format(i.id.name, i.value), file=f)
@@ -230,8 +231,11 @@ class Option(object):
         if self.id in (PacketOption.DOMAIN_NAME_SERVER, PacketOption.LOG_SERVER, PacketOption.TIME_SERVER):
             return b''.join(i.packed for i in self.value)
 
-        if self.id in (PacketOption.HOST_NAME, PacketOption.DOMAIN_NAME, PacketOption.CLASS_IDENT):
+        if self.id in (PacketOption.HOST_NAME, PacketOption.DOMAIN_NAME):
             return self.value.encode('ascii')
+
+        if self.id == PacketOption.CLIENT_IDENT:
+            return struct.pack('!B6s', 1, self.value)
 
         if self.id == PacketOption.MESSAGE_TYPE:
             return bytes([int(self.value)])
