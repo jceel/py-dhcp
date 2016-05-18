@@ -78,6 +78,7 @@ class Client(object):
         self.requested_address = None
         self.server_mac = None
         self.server_address = None
+        self.server_name = None
         self.cv = threading.Condition()
         self.state = State.INIT
         self.xid = None
@@ -97,6 +98,15 @@ class Client(object):
         self.listen_thread = threading.Thread(target=self.__listen, daemon=True, name='py-dhcp listen thread')
         self.listen_thread.start()
         self.discover(False)
+
+    def __getstate__(self):
+        return {
+            'state': self.state.name,
+            'server_address': self.server_address,
+            'server_name': self.server_name,
+            'lease_starts_at': self.lease.started_at if self.lease else None,
+            'lease_end_at': None
+        }
 
     def __setstate(self, state):
         self.state = state
@@ -195,6 +205,8 @@ class Client(object):
                     if opt.id == PacketOption.HOST_NAME:
                         lease.host_name = opt.value
 
+                lease.lifetime = 10
+
                 # (re)start T1 and T2 timers
                 if self.t1_timer:
                     self.t1_timer.cancel()
@@ -211,6 +223,7 @@ class Client(object):
 
                 with self.cv:
                     self.lease = lease
+                    self.server_name = packet.sname
                     self.__setstate(State.BOUND)
 
             if opt.value == MessageType.DHCPNAK:
@@ -244,11 +257,10 @@ class Client(object):
                 self.logger.debug('Cannot send message: {0}'.format(str(err)))
 
             with self.cv:
-                while self.state != State.REQUESTING:
-                    self.cv.wait(5 if retries < 10 else 30)
-                    break
-                else:
+                if self.cv.wait_for(lambda: self.state == State.REQUESTING, 5 if retries < 10 else 30):
                     return
+
+                retries += 1
 
     def discover(self, block=True, timeout=None):
         self.discover_thread = threading.Thread(
@@ -262,7 +274,8 @@ class Client(object):
 
         if block:
             with self.cv:
-                self.cv.wait_for(lambda: self.state == State.REQUESTING, timeout)
+                self.cv.wait_for(lambda: self.state == State.BOUND, timeout)
+                return self.lease
 
     def request(self, block=True, timeout=None):
         packet = Packet()
@@ -287,6 +300,11 @@ class Client(object):
             if block:
                 self.cv.wait_for(lambda: self.state == State.BOUND, timeout)
                 return self.lease
+
+    def wait_for_bind(self, timeout=None):
+        with self.cv:
+            self.cv.wait_for(lambda: self.state == State.BOUND, timeout)
+            return self.lease
 
     def renew(self, block=True, timeout=None):
         self.request()

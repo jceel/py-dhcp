@@ -26,11 +26,13 @@
 #####################################################################
 
 import ipaddress
+from datetime import datetime
 from .packet import Option, PacketOption
 
 
 class Lease(object):
     def __init__(self):
+        self.started_at = datetime.utcnow()
         self.client_mac = None
         self.client_ip = None
         self.client_mask = None

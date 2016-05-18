@@ -34,10 +34,9 @@ from dhcp.client import Client
 def main():
     s = Client(sys.argv[1], 'test')
     s.start()
-    s.discover()
-    lease = s.request()
-    print(lease.__getstate__())
-    time.sleep(100)
+    print(s.wait_for_bind().__getstate__())
+    while True:
+        time.sleep(100)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
