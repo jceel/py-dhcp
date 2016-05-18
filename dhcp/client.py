@@ -129,8 +129,9 @@ class Client(object):
         """
         self.logger.debug('Renew timed out; rebinding')
         with self.cv:
+            self.lease = None
             self.server_address = None
-            self.__setstate(State.RENEWING)
+            self.__setstate(State.REBINDING)
 
         self.discover()
 

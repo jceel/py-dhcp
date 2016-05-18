@@ -26,7 +26,7 @@
 #####################################################################
 
 import ipaddress
-from datetime import datetime
+from datetime import datetime, timedelta
 from .packet import Option, PacketOption
 
 
@@ -58,6 +58,10 @@ class Lease(object):
     @property
     def client_interface(self):
         return ipaddress.ip_interface('{0}/{1}'.format(self.client_ip, self.client_mask))
+
+    @property
+    def ends_at(self):
+        return self.started_at + timedelta(seconds=self.lifetime)
 
     @property
     def options(self):
