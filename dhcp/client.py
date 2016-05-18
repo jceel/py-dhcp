@@ -25,12 +25,9 @@
 #
 #####################################################################
 
-import sys
 import ipaddress
-import time
 import enum
 import random
-import socket
 import threading
 import logging
 import netif
@@ -39,6 +36,18 @@ from .packet import Packet, Option, PacketOption, PacketType, MessageType
 from .udp import UDPPacket
 from .lease import Lease
 from .utils import pack_mac
+
+
+BPF_PROGRAM = [
+    bpf.Statement(bpf.InstructionClass.LD | bpf.OperandSize.H | bpf.OperandMode.ABS, 36),
+    bpf.Jump(bpf.InstructionClass.JMP | bpf.Opcode.JEQ | bpf.Source.K, 68, 0, 5),
+    bpf.Statement(bpf.InstructionClass.LD | bpf.OperandSize.B | bpf.OperandMode.ABS, 23),
+    bpf.Jump(bpf.InstructionClass.JMP | bpf.Opcode.JEQ | bpf.Source.K, 0x11, 0, 3),
+    bpf.Statement(bpf.InstructionClass.LD | bpf.OperandSize.H | bpf.OperandMode.ABS, 12),
+    bpf.Jump(bpf.InstructionClass.JMP | bpf.Opcode.JEQ | bpf.Source.K, 0x0800, 0, 1),
+    bpf.Statement(bpf.InstructionClass.RET | bpf.Source.K, 0x0fffffff),
+    bpf.Statement(bpf.InstructionClass.RET | bpf.Source.K, 0)
+]
 
 
 class State(enum.Enum):
@@ -84,6 +93,7 @@ class Client(object):
         self.bpf.open()
         self.bpf.immediate = True
         self.bpf.interface = self.interface
+        self.bpf.apply_filter(BPF_PROGRAM)
         self.listen_thread = threading.Thread(target=self.__listen, daemon=True, name='py-dhcp listen thread')
         self.listen_thread.start()
         self.discover(False)
