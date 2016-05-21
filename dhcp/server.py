@@ -81,7 +81,7 @@ class Server(object):
                 self.logger.debug('Malformed packet: no MESSAGE_TYPE option')
                 continue
 
-            handler = self.handlers.get(message_type)
+            handler = self.handlers.get(message_type.value)
             if handler:
                 handler(packet, address)
 
@@ -98,9 +98,10 @@ class Server(object):
         offer.clone_from(packet)
         offer.op = PacketType.BOOTREPLY
         offer.sname = self.server_name
-        offer.options[PacketOption.MESSAGE_TYPE] = Option(PacketOption.MESSAGE_TYPE, MessageType.DHCPOFFER)
+        offer.options.append(Option(PacketOption.MESSAGE_TYPE, MessageType.DHCPOFFER))
 
-        lease = self.on_request(format_mac(packet.chaddr), packet.options.get(PacketOption.HOST_NAME))
+        hostname = packet.find_option(PacketOption.HOST_NAME)
+        lease = self.on_request(format_mac(packet.chaddr), hostname.value if hostname else None)
         if not lease:
             # send NAK
             return
@@ -108,7 +109,7 @@ class Server(object):
         self.requests[packet.xid] = lease
         offer.yiaddr = lease.client_ip
         offer.siaddr = ipaddress.ip_address(self.address)
-        offer.options.update({i.id: i for i in lease.options})
+        offer.options += lease.options
         self.send_packet(offer, (self.broadcast, 68))
 
     def handle_request(self, packet, sender):
@@ -117,16 +118,17 @@ class Server(object):
         ack.op = PacketType.BOOTREPLY
         ack.htype = packet.htype
         ack.sname = self.server_name
-        ack.options[PacketOption.MESSAGE_TYPE] = Option(PacketOption.MESSAGE_TYPE, MessageType.DHCPACK)
+        ack.options.append(Option(PacketOption.MESSAGE_TYPE, MessageType.DHCPACK))
 
+        hostname = packet.find_option(PacketOption.HOST_NAME)
         lease = self.requests.pop(packet.xid, None)
         if not lease:
-            lease = self.on_request(format_mac(packet.chaddr), packet.options.get(PacketOption.HOST_NAME))
+            lease = self.on_request(format_mac(packet.chaddr), hostname.value if hostname else None)
 
         self.leases.append(lease)
         ack.yiaddr = lease.client_ip
         ack.siaddr = ipaddress.ip_address(self.address)
-        ack.options.update({i.id: i for i in lease.options})
+        ack.options += lease.options
         self.send_packet(ack, (self.broadcast, 68))
 
     def handle_release(self, packet):
