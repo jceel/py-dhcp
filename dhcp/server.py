@@ -76,11 +76,11 @@ class Server(object):
             if self.on_packet:
                 self.on_packet(packet)
 
-            if PacketOption.MESSAGE_TYPE not in packet.options:
+            message_type = packet.find_option(PacketOption.MESSAGE_TYPE)
+            if not message_type:
                 self.logger.debug('Malformed packet: no MESSAGE_TYPE option')
                 continue
 
-            message_type = packet.options[PacketOption.MESSAGE_TYPE].value
             handler = self.handlers.get(message_type)
             if handler:
                 handler(packet, address)
