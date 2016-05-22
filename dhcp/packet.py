@@ -57,6 +57,7 @@ class MessageType(enum.IntEnum):
     DHCPACK = 5
     DHCPNAK = 6
     DHCPRELEASE = 7
+    DHCPINFORM = 8
 
 
 class PacketOption(enum.IntEnum):
@@ -66,6 +67,10 @@ class PacketOption(enum.IntEnum):
     NAME_SERVER = 5
     DOMAIN_NAME_SERVER = 6
     LOG_SERVER = 7
+    QUOTE_SERVER = 8
+    LPR_SERVER = 9
+    IMPRESS_SERVER = 10
+    RESOURCE_LOCATION_SERVER = 11
     HOST_NAME = 12
     DOMAIN_NAME = 15
     ROOT_PATH = 17
@@ -207,7 +212,11 @@ class Option(object):
             self.value = value.decode('ascii')
             return
 
-        if self.id in (PacketOption.DOMAIN_NAME_SERVER, PacketOption.LOG_SERVER, PacketOption.TIME_SERVER):
+        if self.id in (
+            PacketOption.DOMAIN_NAME_SERVER, PacketOption.LOG_SERVER, PacketOption.TIME_SERVER,
+            PacketOption.QUOTE_SERVER, PacketOption.LPR_SERVER, PacketOption.IMPRESS_SERVER,
+            PacketOption.RESOURCE_LOCATION_SERVER
+        ):
             self.value = []
             for i in struct.iter_unpack('I', value):
                 self.value.append(ipaddress.ip_address(socket.ntohl(i[0])))
@@ -228,7 +237,11 @@ class Option(object):
         if self.id in (PacketOption.ROUTER, PacketOption.REQUESTED_IP, PacketOption.SUBNET_MASK):
             return self.value.packed
 
-        if self.id in (PacketOption.DOMAIN_NAME_SERVER, PacketOption.LOG_SERVER, PacketOption.TIME_SERVER):
+        if self.id in (
+            PacketOption.DOMAIN_NAME_SERVER, PacketOption.LOG_SERVER, PacketOption.TIME_SERVER,
+            PacketOption.QUOTE_SERVER, PacketOption.LPR_SERVER, PacketOption.IMPRESS_SERVER,
+            PacketOption.RESOURCE_LOCATION_SERVER
+        ):
             return b''.join(i.packed for i in self.value)
 
         if self.id in (PacketOption.HOST_NAME, PacketOption.DOMAIN_NAME):
