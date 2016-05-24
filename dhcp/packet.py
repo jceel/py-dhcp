@@ -29,10 +29,12 @@ import enum
 import ipaddress
 import socket
 import struct
+import logging
 from .utils import first_or_default
 
 
 MAGIC_COOKIE = b'\x63\x82\x53\x63'
+logger = logging.getLogger(__name__)
 
 
 class PacketType(enum.IntEnum):
@@ -142,8 +144,13 @@ class Packet(object):
             offset += 1
             value = struct.unpack_from('{0}s'.format(length), payload, offset)[0]
             offset += length
-            optid = PacketOption(code)
-            self.options.append(Option(optid, packed=value))
+
+            try:
+                optid = PacketOption(code)
+                self.options.append(Option(optid, packed=value))
+            except ValueError:
+                logger.debug('Unknown DHCP option {0}, skipped'.format(code))
+                continue
 
     def pack(self):
         result = bytearray(bytes(240))
