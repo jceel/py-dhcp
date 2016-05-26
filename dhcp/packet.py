@@ -235,7 +235,7 @@ class Option(object):
             return
 
         if self.id == PacketOption.LEASE_TIME:
-            self.value = struct.unpack('I', value)[0]
+            self.value = struct.unpack('!I', value)[0]
             return
 
         self.value = value

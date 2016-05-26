@@ -111,7 +111,7 @@ class Client(object):
             'server_address': self.server_address,
             'server_name': self.server_name,
             'lease_starts_at': self.lease.started_at if self.lease else None,
-            'lease_end_at': None
+            'lease_ends_at': self.lease.ends_at if self.lease else None,
         }
 
     def __setstate(self, state):
@@ -202,7 +202,8 @@ class Client(object):
 
                 for opt in packet.options:
                     if opt.id == PacketOption.LEASE_TIME:
-                        lease.lifetime = opt.value
+                        import socket
+                        lease.lifetime = socket.ntohl(opt.value)
 
                     if opt.id == PacketOption.SUBNET_MASK:
                         lease.client_mask = opt.value
@@ -222,7 +223,7 @@ class Client(object):
                     if opt.id == PacketOption.HOST_NAME:
                         lease.host_name = opt.value
 
-                lease.lifetime = 10
+                self.logger.debug('Lease time is {0}'.format(lease.lifetime))
 
                 # (re)start T1, T2 and expire timers
                 if self.t1_timer:
@@ -291,7 +292,11 @@ class Client(object):
 
                 retries += 1
 
-    def __request(self, block=True, timeout=None, renew=False):
+    def __request(self, renew=False):
+        if renew:
+            with self.cv:
+                self.__setstate(State.RENEWING)
+
         packet = Packet()
         packet.op = PacketType.BOOTREQUEST
         packet.xid = self.xid
