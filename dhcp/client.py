@@ -140,6 +140,7 @@ class Client(object):
         self.discover(block=False, rebind=True)
 
     def __expire(self):
+        self.logger.debug('Rebind timed out; expiring the lease and going back to INIT state')
         with self.cv:
             self.on_unbind(self.lease)
             self.lease = None
