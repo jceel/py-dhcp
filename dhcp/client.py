@@ -61,6 +61,11 @@ class State(enum.Enum):
     REBINDING = 8
 
 
+class UnbindReason(enum.Enum):
+    EXPIRE = 1
+    REVOKE = 2
+
+
 class Client(object):
     def __init__(self, interface, hostname=''):
         self.logger = logging.getLogger(self.__class__.__name__)
