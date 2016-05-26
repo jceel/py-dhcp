@@ -236,7 +236,7 @@ class Client(object):
 
                 if self.expire_timer:
                     self.expire_timer.cancel()
-                self.expire_timer = threading.Timer(lease.lifetime * 0.875, self.__expire)
+                self.expire_timer = threading.Timer(lease.lifetime, self.__expire)
                 self.expire_timer.start()
 
                 self.on_bind(self.lease, lease)
