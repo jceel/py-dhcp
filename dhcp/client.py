@@ -69,9 +69,10 @@ class Client(object):
         self.port = 68
         self.default_lifetime = 300
         self.listen_thread = None
-        self.discover_thread = None
+        self.send_thread = None
         self.t1_timer = None
         self.t2_timer = None
+        self.expire_timer = None
         self.client_ident = None
         self.hostname = hostname
         self.lease = None
@@ -82,7 +83,7 @@ class Client(object):
         self.cv = threading.Condition()
         self.state = State.INIT
         self.xid = None
-        self.on_bind = lambda lease: None
+        self.on_bind = lambda old_lease, lease: None
         self.on_unbind = lambda lease: None
         self.on_state_change = lambda state: None
         self.source_if = netif.get_interface(self.interface)
@@ -121,7 +122,7 @@ class Client(object):
         with self.cv:
             self.__setstate(State.RENEWING)
 
-        self.renew()
+        self.request(block=False, renew=True)
 
     def __t2(self):
         """
@@ -129,11 +130,19 @@ class Client(object):
         """
         self.logger.debug('Renew timed out; rebinding')
         with self.cv:
-            self.lease = None
-            self.server_address = None
             self.__setstate(State.REBINDING)
 
-        self.discover()
+        self.discover(block=False, rebind=True)
+
+    def __expire(self):
+        with self.cv:
+            self.on_unbind(self.lease)
+            self.lease = None
+            self.server_mac = None
+            self.server_address = None
+            self.__setstate(State.INIT)
+
+        self.discover(block=False)
 
     def __send(self, mac, src_ip, dst_ip, payload):
         udp = UDPPacket(
@@ -163,7 +172,7 @@ class Client(object):
             self.logger.debug('Received DHCP packet of type {0}'.format(opt.value.name))
 
             if opt.value == MessageType.DHCPOFFER:
-                if self.state != State.SELECTING:
+                if self.state not in (State.SELECTING, State.REBINDING):
                     self.logger.debug('DHCPOFFER received and ignored')
                     continue
 
@@ -172,8 +181,9 @@ class Client(object):
                     self.server_mac = udp.src_mac
                     self.server_address = udp.src_address
                     self.requested_address = packet.yiaddr
-                    self.__setstate(State.REQUESTING)
+                    self.__setstate(State.REQUESTING if self.state == State.SELECTING else State.REBINDING)
                     self.request(False)
+                    continue
 
             if opt.value == MessageType.DHCPACK:
                 if self.state not in (State.REQUESTING, State.RENEWING, State.REBINDING):
@@ -208,18 +218,23 @@ class Client(object):
 
                 lease.lifetime = 10
 
-                # (re)start T1 and T2 timers
+                # (re)start T1, T2 and expire timers
                 if self.t1_timer:
                     self.t1_timer.cancel()
-                self.t1_timer = threading.Timer(lease.lifetime / 2, self.__t1)
+                self.t1_timer = threading.Timer(lease.lifetime * 0.500, self.__t1)
                 self.t1_timer.start()
 
                 if self.t2_timer:
                     self.t2_timer.cancel()
-                self.t2_timer = threading.Timer(lease.lifetime, self.__t2)
+                self.t2_timer = threading.Timer(lease.lifetime * 0.875, self.__t2)
                 self.t2_timer.start()
 
-                self.on_bind(lease)
+                if self.expire_timer:
+                    self.expire_timer.cancel()
+                self.expire_timer = threading.Timer(lease.lifetime * 0.875, self.__expire)
+                self.expire_timer.start()
+
+                self.on_bind(self.lease, lease)
                 self.logger.debug('Bound to {0}'.format(lease.client_ip))
 
                 with self.cv:
@@ -230,9 +245,11 @@ class Client(object):
             if opt.value == MessageType.DHCPNAK:
                 self.logger.warning('DHCP server declined out request')
 
-    def __discover(self, requested_address=None):
+        print('exiting listen loop')
+
+    def __discover(self, requested_address=None, rebind=False):
         with self.cv:
-            self.__setstate(State.SELECTING)
+            self.__setstate(State.REBINDING if rebind else State.SELECTING)
 
         self.xid = random.randint(0, 2**32 - 1)
         packet = Packet()
@@ -253,7 +270,12 @@ class Client(object):
         while True:
             self.logger.debug('Sending DHCPDISCOVER')
             try:
-                self.__send('FF:FF:FF:FF:FF:FF', '0.0.0.0', '255.255.255.255', packet.pack())
+                self.__send(
+                    'FF:FF:FF:FF:FF:FF',
+                    '0.0.0.0',
+                    '255.255.255.255',
+                    packet.pack()
+                )
             except OSError as err:
                 self.logger.debug('Cannot send message: {0}'.format(str(err)))
 
@@ -263,22 +285,7 @@ class Client(object):
 
                 retries += 1
 
-    def discover(self, block=True, timeout=None):
-        self.discover_thread = threading.Thread(
-            target=self.__discover,
-            args=(self.requested_address,),
-            daemon=True,
-            name='py-dhcp discover thread'
-        )
-
-        self.discover_thread.start()
-
-        if block:
-            with self.cv:
-                self.cv.wait_for(lambda: self.state == State.BOUND, timeout)
-                return self.lease
-
-    def request(self, block=True, timeout=None):
+    def __request(self, block=True, timeout=None, renew=False):
         packet = Packet()
         packet.op = PacketType.BOOTREQUEST
         packet.xid = self.xid
@@ -291,14 +298,53 @@ class Client(object):
             Option(PacketOption.CLIENT_IDENT, pack_mac(self.hwaddr))
         ]
 
-        with self.cv:
+        retries = 0
+
+        while True:
+            self.logger.debug('Sending DHCPREQUEST')
             try:
-                self.logger.debug('Sending DHCPREQUEST')
-                self.__send('FF:FF:FF:FF:FF:FF', '0.0.0.0', self.server_address, packet.pack())
+                self.__send(
+                    self.server_mac or 'FF:FF:FF:FF:FF:FF',
+                    self.requested_address or '0.0.0.0',
+                    self.server_address or '255.255.255.255',
+                    packet.pack()
+                )
             except OSError as err:
                 self.logger.debug('Cannot send message: {0}'.format(str(err)))
 
-            if block:
+            with self.cv:
+                if self.cv.wait_for(lambda: self.state not in (State.REQUESTING, State.RENEWING), 5 if retries < 10 else 30):
+                    return
+
+                retries += 1
+
+    def discover(self, block=True, timeout=None, rebind=False):
+        self.send_thread = threading.Thread(
+            target=self.__discover,
+            args=(self.requested_address, rebind),
+            daemon=True,
+            name='py-dhcp discover thread'
+        )
+
+        self.send_thread.start()
+
+        if block:
+            with self.cv:
+                self.cv.wait_for(lambda: self.state == State.REQUESTING, timeout)
+                return self.lease
+
+    def request(self, block=True, timeout=None, renew=False):
+        self.send_thread = threading.Thread(
+            target=self.__request,
+            args=(self.requested_address, renew),
+            daemon=True,
+            name='py-dhcp request thread'
+        )
+
+        self.send_thread.start()
+
+        if block:
+            with self.cv:
                 self.cv.wait_for(lambda: self.state == State.BOUND, timeout)
                 return self.lease
 
@@ -306,9 +352,6 @@ class Client(object):
         with self.cv:
             self.cv.wait_for(lambda: self.state == State.BOUND, timeout)
             return self.lease
-
-    def renew(self, block=True, timeout=None):
-        self.request()
 
     def release(self):
         pass
