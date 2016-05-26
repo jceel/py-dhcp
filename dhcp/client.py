@@ -202,8 +202,7 @@ class Client(object):
 
                 for opt in packet.options:
                     if opt.id == PacketOption.LEASE_TIME:
-                        import socket
-                        lease.lifetime = socket.ntohl(opt.value)
+                        lease.lifetime = opt.value
 
                     if opt.id == PacketOption.SUBNET_MASK:
                         lease.client_mask = opt.value
