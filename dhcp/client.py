@@ -105,6 +105,10 @@ class Client(object):
         self.listen_thread.start()
         self.discover(False)
 
+    def stop(self):
+        self.logger.info('Stopping')
+        self.bpf.close()
+
     def __getstate__(self):
         return {
             'state': self.state.name,
@@ -253,7 +257,7 @@ class Client(object):
 
         print('exiting listen loop')
 
-    def __discover(self, requested_address=None, rebind=False):
+    def __discover(self, rebind=False):
         with self.cv:
             self.__setstate(State.REBINDING if rebind else State.SELECTING)
 
@@ -268,7 +272,7 @@ class Client(object):
             Option(PacketOption.HOST_NAME, self.hostname)
         ]
 
-        if requested_address:
+        if self.requested_address:
             packet.options.append(Option(PacketOption.REQUESTED_IP, self.requested_address))
 
         retries = 0
@@ -331,7 +335,7 @@ class Client(object):
     def discover(self, block=True, timeout=None, rebind=False):
         self.send_thread = threading.Thread(
             target=self.__discover,
-            args=(self.requested_address, rebind),
+            args=(rebind,),
             daemon=True,
             name='py-dhcp discover thread'
         )
@@ -346,7 +350,7 @@ class Client(object):
     def request(self, block=True, timeout=None, renew=False):
         self.send_thread = threading.Thread(
             target=self.__request,
-            args=(self.requested_address, renew),
+            args=(renew,),
             daemon=True,
             name='py-dhcp request thread'
         )
@@ -364,7 +368,16 @@ class Client(object):
             return self.lease
 
     def release(self):
-        pass
+        packet = Packet()
+        packet.op = PacketType.BOOTREQUEST
+        packet.xid = self.xid
+        packet.chaddr = pack_mac(self.hwaddr)
+        packet.siaddr = int(self.server_address)
+        packet.options = [
+            Option(PacketOption.MESSAGE_TYPE, MessageType.DHCPRELEASE),
+            Option(PacketOption.SERVER_IDENT, self.server_address),
+            Option(PacketOption.HOST_NAME, self.hostname)
+        ]
 
     def cancel(self):
         with self.cv:
