@@ -254,6 +254,11 @@ class Client(object):
 
             if opt.value == MessageType.DHCPNAK:
                 self.logger.warning('DHCP server declined out request')
+                with self.cv:
+                    self.lease = None
+                    self.server_mac = None
+                    self.server_address = None
+                    self.__setstate(State.INIT)
 
         print('exiting listen loop')
 
@@ -370,7 +375,7 @@ class Client(object):
     def release(self):
         packet = Packet()
         packet.op = PacketType.BOOTREQUEST
-        packet.xid = self.xid
+        packet.xid = random.randint(0, 2**32 - 1)
         packet.chaddr = pack_mac(self.hwaddr)
         packet.siaddr = int(self.server_address)
         packet.options = [
@@ -381,5 +386,14 @@ class Client(object):
 
     def cancel(self):
         with self.cv:
+            if self.t1_timer:
+                self.t1_timer.cancel()
+
+            if self.t2_timer:
+                self.t2_timer.cancel()
+
+            if self.expire_timer:
+                self.expire_timer.cancel()
+
             if self.state in (State.SELECTING, State.REBINDING):
                 pass
