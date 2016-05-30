@@ -64,6 +64,7 @@ class State(enum.Enum):
 class UnbindReason(enum.Enum):
     EXPIRE = 1
     REVOKE = 2
+    RELEASE = 3
 
 
 class Client(object):
@@ -89,7 +90,7 @@ class Client(object):
         self.state = State.INIT
         self.xid = None
         self.on_bind = lambda old_lease, lease: None
-        self.on_unbind = lambda lease: None
+        self.on_unbind = lambda lease, reason: None
         self.on_state_change = lambda state: None
         self.source_if = netif.get_interface(self.interface)
         self.hwaddr = str(self.source_if.link_address.address)
@@ -146,7 +147,7 @@ class Client(object):
     def __expire(self):
         self.logger.debug('Rebind timed out; expiring the lease and going back to INIT state')
         with self.cv:
-            self.on_unbind(self.lease)
+            self.on_unbind(self.lease, UnbindReason.EXPIRE)
             self.lease = None
             self.server_mac = None
             self.server_address = None
@@ -383,6 +384,13 @@ class Client(object):
             Option(PacketOption.SERVER_IDENT, self.server_address),
             Option(PacketOption.HOST_NAME, self.hostname)
         ]
+
+        with self.cv:
+            self.on_unbind(self.lease, UnbindReason.RELEASE)
+            self.lease = None
+            self.server_address = None
+            self.server_mac = None
+            self.__setstate(State.INIT)
 
     def cancel(self):
         with self.cv:

@@ -103,7 +103,7 @@ class Server(object):
         hostname = packet.find_option(PacketOption.HOST_NAME)
         lease = self.on_request(format_mac(packet.chaddr), hostname.value if hostname else None)
         if not lease:
-            # send NAK
+            # ignore
             return
 
         self.requests[packet.xid] = lease
@@ -122,8 +122,13 @@ class Server(object):
 
         hostname = packet.find_option(PacketOption.HOST_NAME)
         lease = self.requests.pop(packet.xid, None)
+
         if not lease:
             lease = self.on_request(format_mac(packet.chaddr), hostname.value if hostname else None)
+
+        if not lease:
+            # send NAK
+            return
 
         self.leases.append(lease)
         ack.yiaddr = lease.client_ip
