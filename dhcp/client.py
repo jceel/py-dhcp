@@ -172,6 +172,9 @@ class Client(object):
             if udp.dst_port != 68 and udp.src_port != 67:
                 continue
 
+            if udp.dst_mac not in (self.hwaddr, 'FF:FF:FF:FF:FF:FF'):
+                continue
+
             packet = Packet()
             packet.unpack(udp.payload)
 
@@ -183,6 +186,9 @@ class Client(object):
             self.logger.debug('Received DHCP packet of type {0}'.format(opt.value.name))
 
             if opt.value == MessageType.DHCPOFFER:
+                if packet.xid != self.xid:
+                    continue
+
                 if self.state not in (State.SELECTING, State.REBINDING):
                     self.logger.debug('DHCPOFFER received and ignored')
                     continue
@@ -197,6 +203,9 @@ class Client(object):
                     continue
 
             if opt.value == MessageType.DHCPACK:
+                if packet.xid != self.xid:
+                    continue
+
                 if self.state not in (State.REQUESTING, State.RENEWING, State.REBINDING):
                     self.logger.debug('DHCPACK received and ignored')
                     continue
