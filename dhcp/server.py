@@ -27,16 +27,29 @@
 
 import ipaddress
 import logging
-import socket
+import netif
+from bsd import bpf
+from .udp import UDPPacket
 from .utils import format_mac
 from .packet import Packet, PacketType, PacketOption, Option, MessageType
 
 
+BPF_PROGRAM = [
+    bpf.Statement(bpf.InstructionClass.LD | bpf.OperandSize.H | bpf.OperandMode.ABS, 36),
+    bpf.Jump(bpf.InstructionClass.JMP | bpf.Opcode.JEQ | bpf.Source.K, 67, 0, 5),
+    bpf.Statement(bpf.InstructionClass.LD | bpf.OperandSize.B | bpf.OperandMode.ABS, 23),
+    bpf.Jump(bpf.InstructionClass.JMP | bpf.Opcode.JEQ | bpf.Source.K, 0x11, 0, 3),
+    bpf.Statement(bpf.InstructionClass.LD | bpf.OperandSize.H | bpf.OperandMode.ABS, 12),
+    bpf.Jump(bpf.InstructionClass.JMP | bpf.Opcode.JEQ | bpf.Source.K, 0x0800, 0, 1),
+    bpf.Statement(bpf.InstructionClass.RET | bpf.Source.K, 0x0fffffff),
+    bpf.Statement(bpf.InstructionClass.RET | bpf.Source.K, 0)
+]
+
+
 class Server(object):
     def __init__(self):
-        self.sock = None
+        self.bpf = None
         self.address = None
-        self.broadcast = None
         self.server_name = None
         self.port = 67
         self.leases = []
@@ -44,34 +57,40 @@ class Server(object):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.on_packet = None
         self.on_request = None
+        self.source_if = None
+        self.hwaddr = None
         self.handlers = {
             MessageType.DHCPDISCOVER: self.handle_discover,
             MessageType.DHCPREQUEST: self.handle_request,
             MessageType.DHCPRELEASE: self.handle_release
         }
 
-    def start(self, address):
+    def start(self, interface, source_address):
         if not self.server_name:
             raise RuntimeError('Please set server_name')
 
         if not self.on_request:
             raise RuntimeError('Please set on_request')
 
-        if not isinstance(address, ipaddress.IPv4Interface):
-            raise ValueError('address must be an instance of ipaddress.IPv4Interface')
-
-        self.address = str(address.ip)
-        self.broadcast = str(address.network.broadcast_address)
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        self.sock.bind(('', self.port))
+        self.address = source_address
+        self.source_if = netif.get_interface(interface)
+        self.hwaddr = str(self.source_if.link_address.address)
+        self.bpf = bpf.BPF()
+        self.bpf.open()
+        self.bpf.immediate = True
+        self.bpf.interface = interface
+        self.bpf.apply_filter(BPF_PROGRAM)
 
     def serve(self):
-        while True:
-            message, address = self.sock.recvfrom(2048)
+        for buf in self.bpf.read():
+            udp = UDPPacket()
+            udp.unpack(buf)
+
+            if udp.dst_port != 67 and udp.src_port != 68:
+                continue
+
             packet = Packet()
-            packet.unpack(message)
+            packet.unpack(udp.payload)
 
             if self.on_packet:
                 self.on_packet(packet)
@@ -83,15 +102,16 @@ class Server(object):
 
             handler = self.handlers.get(message_type.value)
             if handler:
-                handler(packet, address)
+                handler(packet, None)
 
-    def send_packet(self, packet, address):
-        while True:
-            try:
-                self.sock.sendto(packet.pack(), address)
-                return
-            except InterruptedError:
-                continue
+    def send_packet(self, packet, mac, dst_ip):
+        udp = UDPPacket(
+            src_mac=self.hwaddr, dst_mac=mac, src_address=self.address,
+            dst_address=ipaddress.ip_address(dst_ip), src_port=67, dst_port=68,
+            payload=packet.pack()
+        )
+
+        self.bpf.write(udp.pack())
 
     def handle_discover(self, packet, sender):
         offer = Packet()
@@ -110,7 +130,7 @@ class Server(object):
         offer.yiaddr = lease.client_ip
         offer.siaddr = ipaddress.ip_address(self.address)
         offer.options += lease.options
-        self.send_packet(offer, (self.broadcast, 68))
+        self.send_packet(offer, 'ff:ff:ff:ff:ff:ff', '255.255.255.255')
 
     def handle_request(self, packet, sender):
         ack = Packet()
@@ -134,7 +154,7 @@ class Server(object):
         ack.yiaddr = lease.client_ip
         ack.siaddr = ipaddress.ip_address(self.address)
         ack.options += lease.options
-        self.send_packet(ack, (self.broadcast, 68))
+        self.send_packet(ack, 'ff:ff:ff:ff:ff:ff', '255.255.255.255')
 
     def handle_release(self, packet):
         pass

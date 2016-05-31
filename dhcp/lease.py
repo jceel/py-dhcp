@@ -41,6 +41,7 @@ class Lease(object):
         self.host_name = None
         self.domain_name = None
         self.dns_addresses = []
+        self.dns_search = []
         self.static_routes = []
         self.active = False
 
