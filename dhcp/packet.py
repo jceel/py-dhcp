@@ -211,7 +211,10 @@ class Option(object):
         return result
 
     def unpack(self, value):
-        if self.id in (PacketOption.ROUTER, PacketOption.REQUESTED_IP, PacketOption.SUBNET_MASK):
+        if self.id in (
+            PacketOption.ROUTER, PacketOption.REQUESTED_IP, PacketOption.SUBNET_MASK,
+            PacketOption.SERVER_IDENT
+        ):
             self.value = ipaddress.ip_address(value)
             return
 
@@ -251,7 +254,10 @@ class Option(object):
         self.value = value
 
     def pack(self):
-        if self.id in (PacketOption.ROUTER, PacketOption.REQUESTED_IP, PacketOption.SUBNET_MASK):
+        if self.id in (
+            PacketOption.ROUTER, PacketOption.REQUESTED_IP, PacketOption.SUBNET_MASK,
+            PacketOption.SERVER_IDENT
+        ):
             return self.value.packed
 
         if self.id in (

@@ -324,6 +324,7 @@ class Client(object):
             Option(PacketOption.MESSAGE_TYPE, MessageType.DHCPREQUEST),
             Option(PacketOption.HOST_NAME, self.hostname),
             Option(PacketOption.CLIENT_IDENT, pack_mac(self.hwaddr)),
+            Option(PacketOption.SERVER_IDENT, self.server_address),
             Option(PacketOption.PARAMETER_REQUEST_LIST, [
                 PacketOption.SUBNET_MASK,
                 PacketOption.ROUTER,
@@ -335,6 +336,9 @@ class Client(object):
 
         if self.requested_address:
             packet.options.append(Option(PacketOption.REQUESTED_IP, self.requested_address))
+
+        if renew:
+            packet.ciaddr = int(self.lease.client_ip)
 
         retries = 0
 
