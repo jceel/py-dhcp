@@ -197,7 +197,6 @@ class Client(object):
                 with self.cv:
                     self.server_mac = udp.src_mac
                     self.server_address = udp.src_address
-                    #self.requested_address = packet.yiaddr
                     self.__setstate(State.REQUESTING if self.state == State.SELECTING else State.REBINDING)
                     self.request(False)
                     continue
