@@ -197,7 +197,7 @@ class Client(object):
                 with self.cv:
                     self.server_mac = udp.src_mac
                     self.server_address = udp.src_address
-                    self.requested_address = packet.yiaddr
+                    #self.requested_address = packet.yiaddr
                     self.__setstate(State.REQUESTING if self.state == State.SELECTING else State.REBINDING)
                     self.request(False)
                     continue
@@ -322,7 +322,6 @@ class Client(object):
         packet.siaddr = int(self.server_address)
         packet.options = [
             Option(PacketOption.MESSAGE_TYPE, MessageType.DHCPREQUEST),
-            Option(PacketOption.REQUESTED_IP, self.requested_address),
             Option(PacketOption.HOST_NAME, self.hostname),
             Option(PacketOption.CLIENT_IDENT, pack_mac(self.hwaddr)),
             Option(PacketOption.PARAMETER_REQUEST_LIST, [
@@ -333,6 +332,9 @@ class Client(object):
                 PacketOption.LEASE_TIME
             ])
         ]
+
+        if self.requested_address:
+            packet.options.append(Option(PacketOption.REQUESTED_IP, self.requested_address))
 
         retries = 0
 
