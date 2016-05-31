@@ -390,6 +390,9 @@ class Client(object):
             return self.lease
 
     def release(self):
+        if self.state != State.BOUND:
+            return
+
         packet = Packet()
         packet.op = PacketType.BOOTREQUEST
         packet.xid = random.randint(0, 2**32 - 1)
