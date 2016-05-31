@@ -225,8 +225,8 @@ class Option(object):
             PacketOption.RESOURCE_LOCATION_SERVER
         ):
             self.value = []
-            for i in struct.iter_unpack('I', value):
-                self.value.append(ipaddress.ip_address(socket.ntohl(i[0])))
+            for i, in struct.iter_unpack('I', value):
+                self.value.append(ipaddress.ip_address(socket.ntohl(i)))
 
             return
 
@@ -236,6 +236,16 @@ class Option(object):
 
         if self.id == PacketOption.LEASE_TIME:
             self.value = struct.unpack('!I', value)[0]
+            return
+
+        if self.id == PacketOption.PARAMETER_REQUEST_LIST:
+            self.value = []
+            for i, in struct.iter_unpack('B', value):
+                try:
+                    self.value.append(PacketOption(i))
+                except ValueError:
+                    continue
+
             return
 
         self.value = value
@@ -265,3 +275,6 @@ class Option(object):
 
         if self.id == PacketOption.STATIC_ROUTES:
             return b''.join(self.__pack_route(s, g) for s, g in self.value)
+
+        if self.id == PacketOption.PARAMETER_REQUEST_LIST:
+            return b''.join(struct.pack('B', int(i)) for i in self.value)

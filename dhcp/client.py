@@ -324,7 +324,14 @@ class Client(object):
             Option(PacketOption.MESSAGE_TYPE, MessageType.DHCPREQUEST),
             Option(PacketOption.REQUESTED_IP, self.requested_address),
             Option(PacketOption.HOST_NAME, self.hostname),
-            Option(PacketOption.CLIENT_IDENT, pack_mac(self.hwaddr))
+            Option(PacketOption.CLIENT_IDENT, pack_mac(self.hwaddr)),
+            Option(PacketOption.PARAMETER_REQUEST_LIST, [
+                PacketOption.SUBNET_MASK,
+                PacketOption.ROUTER,
+                PacketOption.DOMAIN_NAME,
+                PacketOption.DOMAIN_NAME_SERVER,
+                PacketOption.LEASE_TIME
+            ])
         ]
 
         retries = 0
