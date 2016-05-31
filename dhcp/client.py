@@ -172,7 +172,7 @@ class Client(object):
             if udp.dst_port != 68 and udp.src_port != 67:
                 continue
 
-            if udp.dst_mac not in (self.hwaddr, 'FF:FF:FF:FF:FF:FF'):
+            if udp.dst_mac not in (self.hwaddr, 'ff:ff:ff:ff:ff:ff'):
                 continue
 
             packet = Packet()
