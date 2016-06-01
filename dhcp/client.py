@@ -318,7 +318,6 @@ class Client(object):
         packet.op = PacketType.BOOTREQUEST
         packet.xid = self.xid
         packet.chaddr = pack_mac(self.hwaddr)
-        packet.siaddr = int(self.server_address)
         packet.options = [
             Option(PacketOption.MESSAGE_TYPE, MessageType.DHCPREQUEST),
             Option(PacketOption.HOST_NAME, self.hostname),
@@ -345,9 +344,9 @@ class Client(object):
             self.logger.debug('Sending DHCPREQUEST')
             try:
                 self.__send(
-                    self.server_mac or 'FF:FF:FF:FF:FF:FF',
-                    self.requested_address or '0.0.0.0',
-                    self.server_address or '255.255.255.255',
+                    'FF:FF:FF:FF:FF:FF',
+                    str(self.lease.client_ip) if renew else '0.0.0.0',
+                    '255.255.255.255',
                     packet.pack()
                 )
             except OSError as err:
