@@ -43,7 +43,7 @@ class PacketType(enum.IntEnum):
 
 
 class PacketFlags(enum.IntEnum):
-    BROADCAST = 1
+    BROADCAST = 1 << 15
 
 
 class HardwareAddressType(enum.IntEnum):
@@ -95,7 +95,7 @@ class Packet(object):
         self.hlen = 6
         self.hops = 0
         self.secs = 0
-        self.flags = 1
+        self.flags = PacketFlags.BROADCAST
         self.xid = None
         self.ciaddr = ipaddress.ip_address('0.0.0.0')
         self.yiaddr = ipaddress.ip_address('0.0.0.0')
@@ -156,7 +156,7 @@ class Packet(object):
         result = bytearray(bytes(240))
         struct.pack_into('BBBB', result, 0, int(self.op), self.htype, self.hlen, self.hops)
         struct.pack_into('!I', result, 4, self.xid)
-        struct.pack_into('HH', result, 8, self.secs, self.flags)
+        struct.pack_into('!HH', result, 8, self.secs, self.flags)
         struct.pack_into('!II', result, 12, int(self.ciaddr), int(self.yiaddr))
         struct.pack_into('!II', result, 20, int(self.siaddr), int(self.giaddr))
         struct.pack_into('12s', result, 28, self.chaddr)
@@ -168,6 +168,10 @@ class Packet(object):
             result += struct.pack('BB{0}s'.format(len(packed)), int(i.id), len(packed), packed)
 
         result += b'\xff'
+
+        if len(result) < 300:
+            result += b'\x00' * (300 - len(result))
+
         return result
 
     def dump(self, f):
