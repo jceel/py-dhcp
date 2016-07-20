@@ -80,7 +80,7 @@ class Client(object):
         self.t2_timer = None
         self.expire_timer = None
         self.client_ident = None
-        self.hostname = hostname
+        self.hostname_source = hostname
         self.lease = None
         self.requested_address = None
         self.server_mac = None
@@ -94,6 +94,13 @@ class Client(object):
         self.on_state_change = lambda state: None
         self.source_if = netif.get_interface(self.interface)
         self.hwaddr = str(self.source_if.link_address.address)
+
+    @property
+    def hostname(self):
+        if callable(self.hostname_source):
+            return self.hostname_source()
+
+        return self.hostname_source
 
     def start(self):
         self.logger.info('Starting')
