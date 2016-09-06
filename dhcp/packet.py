@@ -88,6 +88,7 @@ class PacketOption(enum.IntEnum):
     CLASS_IDENT = 60
     CLIENT_IDENT = 61
     STATIC_ROUTES = 121
+    WPAD_URL = 252
 
 
 class Packet(object):
@@ -224,7 +225,7 @@ class Option(object):
             self.value = ipaddress.ip_address(value)
             return
 
-        if self.id in (PacketOption.HOST_NAME, PacketOption.DOMAIN_NAME):
+        if self.id in (PacketOption.HOST_NAME, PacketOption.DOMAIN_NAME, PacketOption.WPAD_URL):
             self.value = value.decode('ascii')
             return
 
@@ -277,7 +278,7 @@ class Option(object):
         ):
             return b''.join(i.packed for i in self.value)
 
-        if self.id in (PacketOption.HOST_NAME, PacketOption.DOMAIN_NAME):
+        if self.id in (PacketOption.HOST_NAME, PacketOption.DOMAIN_NAME, PacketOption.WPAD_URL):
             return self.value.encode('ascii')
 
         if self.id == PacketOption.ERROR_MESSAGE:
