@@ -77,6 +77,7 @@ class PacketOption(enum.IntEnum):
     DOMAIN_NAME = 15
     ROOT_PATH = 17
     EXTENSIONS_PATH = 18
+    BROADCAST = 28
     REQUESTED_IP = 50
     LEASE_TIME = 51
     MESSAGE_TYPE = 53
@@ -218,7 +219,7 @@ class Option(object):
     def unpack(self, value):
         if self.id in (
             PacketOption.ROUTER, PacketOption.REQUESTED_IP, PacketOption.SUBNET_MASK,
-            PacketOption.SERVER_IDENT
+            PacketOption.SERVER_IDENT, PacketOption.BROADCAST
         ):
             self.value = ipaddress.ip_address(value)
             return
@@ -265,7 +266,7 @@ class Option(object):
     def pack(self):
         if self.id in (
             PacketOption.ROUTER, PacketOption.REQUESTED_IP, PacketOption.SUBNET_MASK,
-            PacketOption.SERVER_IDENT
+            PacketOption.SERVER_IDENT, PacketOption.BROADCAST
         ):
             return self.value.packed
 
