@@ -276,13 +276,14 @@ class Client(object):
                 self.logger.warning('DHCP server declined out request')
                 with self.cv:
                     error = packet.find_option(PacketOption.ERROR_MESSAGE)
+                    if error:
+                        self.logger.warning('DHCP error message: {0}'.format(error.value))
+
                     self.lease = None
                     self.server_mac = None
                     self.server_address = None
                     self.error = error.value if error else 'DHCP request declined'
                     self.__setstate(State.INIT)
-
-        print('exiting listen loop')
 
     def __discover(self, rebind=False):
         with self.cv:
