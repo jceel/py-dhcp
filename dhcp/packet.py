@@ -82,6 +82,7 @@ class PacketOption(enum.IntEnum):
     MESSAGE_TYPE = 53
     SERVER_IDENT = 54
     PARAMETER_REQUEST_LIST = 55
+    ERROR_MESSAGE = 56
     MAX_MESSAGE_SIZE = 57
     CLASS_IDENT = 60
     CLIENT_IDENT = 61
@@ -206,7 +207,7 @@ class Option(object):
 
     def __pack_route(self, subnet, gateway):
         result = struct.pack('B', subnet.prefixlen)
-        packed = subnet.network_address.packed;
+        packed = subnet.network_address.packed
         for i in range(0, 4):
             if packed[i] != b'\x00':
                 result += packed[i:i+1]
@@ -224,6 +225,10 @@ class Option(object):
 
         if self.id in (PacketOption.HOST_NAME, PacketOption.DOMAIN_NAME):
             self.value = value.decode('ascii')
+            return
+
+        if self.id == PacketOption.ERROR_MESSAGE:
+            self.value = value.decode('utf-8')
             return
 
         if self.id in (
@@ -273,6 +278,9 @@ class Option(object):
 
         if self.id in (PacketOption.HOST_NAME, PacketOption.DOMAIN_NAME):
             return self.value.encode('ascii')
+
+        if self.id == PacketOption.ERROR_MESSAGE:
+            return self.value.encode('utf-8')
 
         if self.id == PacketOption.CLIENT_IDENT:
             return struct.pack('!B6s', 1, self.value)

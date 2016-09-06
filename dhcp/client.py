@@ -89,6 +89,7 @@ class Client(object):
         self.cv = threading.Condition()
         self.state = State.INIT
         self.xid = None
+        self.error = None
         self.on_bind = lambda old_lease, lease: None
         self.on_unbind = lambda lease, reason: None
         self.on_state_change = lambda state: None
@@ -122,6 +123,7 @@ class Client(object):
             'state': self.state.name,
             'server_address': self.server_address,
             'server_name': self.server_name,
+            'error': self.error,
             'lease_starts_at': self.lease.started_at if self.lease else None,
             'lease_ends_at': self.lease.ends_at if self.lease else None,
         }
@@ -267,14 +269,17 @@ class Client(object):
                 with self.cv:
                     self.lease = lease
                     self.server_name = packet.sname
+                    self.error = None
                     self.__setstate(State.BOUND)
 
             if opt.value == MessageType.DHCPNAK:
                 self.logger.warning('DHCP server declined out request')
                 with self.cv:
+                    error = packet.find_option(PacketOption.ERROR_MESSAGE)
                     self.lease = None
                     self.server_mac = None
                     self.server_address = None
+                    self.error = error.value if error else 'DHCP request declined'
                     self.__setstate(State.INIT)
 
         print('exiting listen loop')
