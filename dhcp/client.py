@@ -86,6 +86,7 @@ class Client(object):
         self.server_mac = None
         self.server_address = None
         self.server_name = None
+        self.server_id = None
         self.cv = threading.Condition()
         self.state = State.INIT
         self.xid = None
@@ -202,11 +203,14 @@ class Client(object):
                     self.logger.debug('DHCPOFFER received and ignored')
                     continue
 
+                server_id = packet.find_option(PacketOption.SERVER_IDENT)
+
                 self.logger.debug('DHCP server is {0}'.format(packet.siaddr))
                 with self.cv:
                     self.server_mac = udp.src_mac
                     self.server_address = udp.src_address
                     self.requested_address = packet.yiaddr
+                    self.server_id = server_id.value if server_id else self.server_address
                     self.__setstate(State.REQUESTING if self.state == State.SELECTING else State.REBINDING)
                     self.request(False)
                     continue
@@ -336,7 +340,7 @@ class Client(object):
             Option(PacketOption.MESSAGE_TYPE, MessageType.DHCPREQUEST),
             Option(PacketOption.HOST_NAME, self.hostname),
             Option(PacketOption.CLIENT_IDENT, pack_mac(self.hwaddr)),
-            Option(PacketOption.SERVER_IDENT, self.server_address),
+            Option(PacketOption.SERVER_IDENT, self.server_id),
             Option(PacketOption.PARAMETER_REQUEST_LIST, [
                 PacketOption.SUBNET_MASK,
                 PacketOption.ROUTER,
