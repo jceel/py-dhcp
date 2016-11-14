@@ -59,6 +59,7 @@ class State(enum.Enum):
     BOUND = 6
     RENEWING = 7
     REBINDING = 8
+    EXITING = 9
 
 
 class UnbindReason(enum.Enum):
@@ -93,6 +94,7 @@ class Client(object):
         self.error = None
         self.on_bind = lambda old_lease, lease: None
         self.on_unbind = lambda lease, reason: None
+        self.on_reject = lambda reason: None
         self.on_state_change = lambda state: None
         self.source_if = netif.get_interface(self.interface)
         self.hwaddr = str(self.source_if.link_address.address)
@@ -117,7 +119,9 @@ class Client(object):
 
     def stop(self):
         self.logger.info('Stopping')
-        self.bpf.close()
+        with self.cv:
+            self.__setstate(State.EXITING)
+            self.bpf.close()
 
     def __getstate__(self):
         return {
@@ -283,10 +287,12 @@ class Client(object):
                     if error:
                         self.logger.warning('DHCP error message: {0}'.format(error.value))
 
+                    msg = error.value if error else 'DHCP request declined'
+                    self.on_reject(msg)
                     self.lease = None
                     self.server_mac = None
                     self.server_address = None
-                    self.error = error.value if error else 'DHCP request declined'
+                    self.error = msg
                     self.__setstate(State.INIT)
 
     def __discover(self, rebind=False):
@@ -322,7 +328,10 @@ class Client(object):
                 self.logger.debug('Cannot send message: {0}'.format(str(err)))
 
             with self.cv:
-                if self.cv.wait_for(lambda: self.state == State.REQUESTING, 5 if retries < 10 else 30):
+                if self.cv.wait_for(
+                    lambda: self.state in (State.REQUESTING, State.EXITING),
+                    5 if retries < 10 else 30
+                ):
                     return
 
                 retries += 1
@@ -371,7 +380,10 @@ class Client(object):
                 self.logger.debug('Cannot send message: {0}'.format(str(err)))
 
             with self.cv:
-                if self.cv.wait_for(lambda: self.state not in (State.REQUESTING, State.RENEWING), 5 if retries < 10 else 30):
+                if self.cv.wait_for(
+                    lambda: self.state not in (State.REQUESTING, State.RENEWING),
+                    5 if retries < 10 else 30
+                ):
                     return
 
                 retries += 1
@@ -392,6 +404,9 @@ class Client(object):
                 return self.lease
 
     def request(self, block=True, timeout=None, renew=False):
+        if renew and not self.lease:
+            raise RuntimeError('Cannot renew without a lease')
+
         self.send_thread = threading.Thread(
             target=self.__request,
             args=(renew,),
