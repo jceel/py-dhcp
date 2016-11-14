@@ -281,7 +281,7 @@ class Client(object):
                     self.__setstate(State.BOUND)
 
             if opt.value == MessageType.DHCPNAK:
-                self.logger.warning('DHCP server declined out request')
+                self.logger.warning('DHCP server declined our request')
                 with self.cv:
                     error = packet.find_option(PacketOption.ERROR_MESSAGE)
                     if error:
