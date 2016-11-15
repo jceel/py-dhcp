@@ -281,6 +281,10 @@ class Client(object):
                     self.__setstate(State.BOUND)
 
             if opt.value == MessageType.DHCPNAK:
+                if self.state not in (State.REQUESTING, State.RENEWING, State.REBINDING):
+                    self.logger.debug('DHCPNAK received and ignored')
+                    continue
+
                 self.logger.warning('DHCP server declined our request')
                 with self.cv:
                     error = packet.find_option(PacketOption.ERROR_MESSAGE)
