@@ -197,8 +197,6 @@ class Client(object):
                 self.logger.warning('Received DHCP packet without message type, discarding')
                 continue
 
-            self.logger.debug('Received DHCP packet of type {0}'.format(opt.value.name))
-
             if opt.value == MessageType.DHCPOFFER:
                 if packet.xid != self.xid:
                     continue
